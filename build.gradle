@@ -19,12 +19,20 @@ dependencies {
 sourceSets {
     main.java.srcDirs += 'src/main/kotlin/'
     test.java.srcDirs += 'src/test/kotlin/'
+
+    main {
+        output.resourcesDir = file('out/bin')
+        java.outputDir = file('out/bin')
+    }
 }
 
 jar {
     manifest {
         attributes 'Main-Class': "org.beagle.MainKt"
     }
-    from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
+    from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
 }
 
+tasks.withType(Jar) {
+    destinationDirectory.fileValue(file('out/bin'))
+}

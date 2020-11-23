@@ -4,6 +4,6 @@ COPY --chown=gradle:gradle . /app
 RUN gradle clean build --no-daemon
 
 FROM openjdk:8
-COPY --from=build /app/build/libs/ /tmp
+COPY --from=build /app/out/bin/ /tmp
 WORKDIR /tmp
-ENTRYPOINT ["java","-jar","Beagle.jar"]
+ENTRYPOINT ["java","-jar","Beadocker gle.jar"]

@@ -19,11 +19,6 @@ dependencies {
 sourceSets {
     main.java.srcDirs += 'src/main/kotlin/'
     test.java.srcDirs += 'src/test/kotlin/'
-
-    main {
-        output.resourcesDir = file('out/bin')
-        java.outputDir = file('out/bin')
-    }
 }
 
 jar {

@@ -96,10 +96,6 @@ class Command private constructor(
         private var conditions : MutableList<Condition> = mutableListOf()
         private var subcommands : MutableList<Command> = mutableListOf()
         fun <T : Any> argument(arg : String, type : KClass<T>) = apply {
-            when (type) {
-                Int::class.java -> println(1)
-                String::class.java -> println(1)
-            }
             arguments.add(Argument(arg, null, type.simpleName ?: "null"))
         }
         fun callback(c: MessageCommand) = apply{ callbacks.add(c)}

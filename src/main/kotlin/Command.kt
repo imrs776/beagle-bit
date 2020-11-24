@@ -3,6 +3,7 @@ package org.beagle
 import discord4j.core.`object`.entity.Member
 import discord4j.core.event.domain.message.MessageCreateEvent
 import org.slf4j.LoggerFactory
+import javax.lang.model.element.Element
 import kotlin.reflect.KClass
 
 typealias MessageCommand = (event: MessageCreateEvent, arguments : Arguments) -> Unit
@@ -42,21 +43,39 @@ class Argument internal constructor(
     private fun <T : Any> isType(type : KClass<T>) = this.type == type.simpleName
     private inline fun <reified T> logCastError(arg : Argument) =
             LoggerFactory.getLogger(Argument::class.simpleName)
-                    .warn("Invalid cast of $arg to ${T::class.simpleName}")
+                    .warn("Invalid cast of [$arg] to ${T::class.simpleName}")
     private inline fun <reified T : Any> checkCastType(arg: Argument, type : KClass<T>) : String? =
             if (arg.isType(type)) arg.value else null
 
-    override fun toString() : String = "$name : $type" + (value?.let { " = $value" } ?: "")
+    override fun toString() : String = "($name):$type" + (value?.let { " = $value" } ?: "")
 }
 
-class Arguments internal constructor(internal var list : List<Argument>) {
+//class Arguments internal constructor(private val list : List<Argument>) {
+//    operator fun get(string : String) : Argument? {
+//        list.forEach { if (it.name == string ) return it }
+//        LoggerFactory.getLogger(Arguments::class.simpleName)
+//                .warn("Invalid argument [$string]")
+//        return null
+//    }
+//    val indices = list.indices
+//    fun forEach(action: (Argument) -> Unit) { list.forEach(action) }
+//    operator fun get(i : Int) : Argument = list[i]
+//    override fun toString() : String = toString().trimStart('[').trimEnd(']')
+//    fun isEmpty() = list.isEmpty()
+//}
+
+class Arguments : ArrayList<Argument> {
+
+    internal constructor() : super()
+    internal constructor(list : List<Argument>) : super(list)
+
     operator fun get(string : String) : Argument? {
-        list.forEach { if (it.name == string ) return it }
+        forEach { if (it.name == string ) return it }
         LoggerFactory.getLogger(Arguments::class.simpleName)
-                .warn("Invalid argument $string")
+            .warn("Invalid argument [$string]")
         return null
     }
-    override fun toString() : String = list.toString().trimStart('[').trimEnd(']')
+    override fun toString() : String = super.toString().trimStart('[').trimEnd(']')
 }
 
 enum class Permission() {
@@ -68,25 +87,40 @@ enum class Permission() {
     ADMIN {
         override fun check(member: Member) =
                 member.basePermissions.block()?.contains(discord4j.rest.util.Permission.ADMINISTRATOR) ?: false
-    };
+    },
+    NEVER { override fun check(member: Member) = false };
     abstract fun check(member : Member) : Boolean
 }
 
 enum class Condition {
     IN_VOICE {
         override fun check(member: Member) = member.voiceState.hasElement().block() ?: false
-    };
+    },
+    NEVER { override fun check(member: Member) = false };
     abstract fun check(member : Member) : Boolean
 }
 
 class Command private constructor(
-        private val prefix: String,
-        private val name: String,
-        private var arguments : Arguments,
-        private val callbacks : List<MessageCommand>,
-        private val permission : Permission,
-        private val conditions : List<Condition>,
-        private val subcommands : List<Command>) {
+        val prefix: String,
+        val name: String,
+        val arguments : Arguments,
+        val callbacks : List<MessageCommand>,
+        val permission : Permission,
+        val conditions : List<Condition>,
+        val subcommands : List<Command>) {
+    private val patterns : List<Regex>
+    init {
+        val result = mutableListOf<Regex>()
+        if (callbacks.isNotEmpty())
+            result.add(("\\s*$prefix$name" + "\\s+\\w+".repeat(arguments.size) + "\\s*")
+                .toRegex(RegexOption.IGNORE_CASE))
+        subcommands.forEach { i -> i.patterns.forEach { j ->
+            result.add(("\\s*$prefix$name\\s+${j.pattern.removePrefix("\\s*")}")
+                .toRegex(RegexOption.IGNORE_CASE))}
+        }
+        patterns = result
+    }
+
     class CommandBuilder(
             private val prefix: String,
             private val name: String) {
@@ -111,17 +145,19 @@ class Command private constructor(
         val member = event.member.get()
         if(!checkPermissions(member)) return
         if(!checkConditions(member)) return
-        val content = event.message.content.split(" ").map { it.trim() }
-
-        if(!parseInput(member, content)) return
-
-        subcommands.find { content[1] == (it.prefix + it.name) }
+        var patternsMatched = 0
+        patterns.forEach { if (it.matches(event.message.content)) patternsMatched++ }
+        if(patternsMatched > 0 ) {
+            val content = event.message.content.split(" ").map { it.trim() }
+            if(!parseInput(member, content)) return
+            subcommands.find { content[1] == (it.prefix + it.name) }
                 ?.executeSubcommand(event, content, 1) ?: run {
-            callbacks.forEach { it.invoke(event, arguments) }
+                callbacks.forEach { it.invoke(event, arguments) }
+            }
+            LoggerFactory.getLogger(Command::class.simpleName)
+                .info("Command [${event.message.content}] executed by @${member.displayName}")
+            clearArguments()
         }
-        LoggerFactory.getLogger(Command::class.simpleName)
-                .info("Command [$this] executed by @${member.displayName}")
-        clearArguments()
     }
 
     private fun executeSubcommand(event: MessageCreateEvent, content : List<String>, contentStart : Int) {
@@ -129,13 +165,12 @@ class Command private constructor(
                 ?.executeSubcommand(event, content, contentStart + 1) ?: run {
             callbacks.forEach { it.invoke(event, arguments) }
         }
-        arguments.list.forEach {it.value = null}
     }
 
     private fun checkPermissions(member: Member) : Boolean {
         if(!permission.check(member)) {
             LoggerFactory.getLogger(Command::class.simpleName)
-                    .warn("Invalid permissions for command [$this] executed by @${member.displayName}")
+                    .warn("Member @${member.displayName} doesn't have permission [$permission]")
             return false
         }
         return true
@@ -146,43 +181,30 @@ class Command private constructor(
         conditions.forEach { check = check && it.check(member) }
         if(!check) {
             LoggerFactory.getLogger(Command::class.simpleName)
-                    .warn("Invalid conditions for command [$this] executed by @${member.displayName}")
+                    .warn("Member @${member.displayName} doesn't have conditions $conditions")
             return false
         }
         return true
     }
 
     private fun parseInput(member: Member, content : List<String>, contentStart : Int = 0) : Boolean {
-        if(content.isEmpty() || content[contentStart].removePrefix(prefix) != name) {
-            if(contentStart > 0) LoggerFactory.getLogger(Command::class.simpleName)
-                    .warn("Invalid subcommand name for [$this] executed by @${member.displayName}")
-            return false
-        }
-        if(arguments.list.isEmpty() && subcommands.isEmpty() && content.size == 1)
+        if(arguments.isEmpty() && content.size == contentStart + 1)
             return true
         return subcommands.find { content[contentStart + 1] == (it.prefix + it.name) }
                 ?.parseInput(member, content, contentStart + 1) ?: run {
-            var invalidArgumentCount = false
-            var wordParsed = contentStart + 1
-            for (i in arguments.list.indices) {
-                if(contentStart + i + 1 >= content.size) { invalidArgumentCount = true; break }
-                arguments.list[i].value = content[contentStart + i + 1]
-                if(!arguments.list[i].isValid()) return false
-                wordParsed = contentStart + i + 2
-            }
-            if(invalidArgumentCount || wordParsed < content.size) {
-                LoggerFactory.getLogger(Command::class.simpleName)
-                        .warn("Invalid argument count for command [$this] executed by @${member.displayName}")
-                return false
+            for (i in arguments.indices) {
+                arguments[i].value = content[contentStart + i + 1]
+                if(!arguments[i].isValid())
+                    return false
             }
             return true
         }
     }
 
     private fun clearArguments() {
-        arguments.list.forEach {it.value = null}
+        arguments.forEach {it.value = null}
         subcommands.forEach { it.clearArguments() }
     }
 
-    override fun toString() : String = "$name $arguments"
+    override fun toString() =  "$name $arguments"
 }

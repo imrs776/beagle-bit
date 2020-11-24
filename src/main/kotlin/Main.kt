@@ -2,8 +2,9 @@ package org.beagle
 
 fun main() {
     val token = ""
-    val prefix = "!"
+    val prefix = "-"
     Bot(token, prefix)
-            .addModule(PingPongModule())
-            .start()
+        .addModule(HelpModule())
+        .addModule(Test())
+        .start()
 }

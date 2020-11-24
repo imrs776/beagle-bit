@@ -8,7 +8,7 @@ class TestModule : Module("Test") {
         val subcommand1 = Command.CommandBuilder("", "ping")
             .argument("amount", Long::class)
             .callback { e, a ->
-                val amount : Long = java.lang.Long.min(a["amount"]?.toLongOrNull() ?: return@callback, 5)
+                val amount: Long = java.lang.Long.min(a["amount"]?.toLongOrNull() ?: return@callback, 5)
                 e.message.channel
                     .repeat(amount - 1)
                     .flatMap { it.createMessage("Pong") }
@@ -19,7 +19,7 @@ class TestModule : Module("Test") {
         val subcommand2 = Command.CommandBuilder("", "pong")
             .argument("amount", Long::class)
             .callback { e, a ->
-                val amount : Long = java.lang.Long.min(a["amount"]?.toLongOrNull() ?: return@callback, 5)
+                val amount: Long = java.lang.Long.min(a["amount"]?.toLongOrNull() ?: return@callback, 5)
                 e.message.channel
                     .repeat(amount - 1)
                     .flatMap { it.createMessage("Ping") }
@@ -29,7 +29,7 @@ class TestModule : Module("Test") {
 
         val command = Command.CommandBuilder(bot.prefix, "test")
             .callback { e, a ->
-                val amount : Long = java.lang.Long.min(a["amount"]?.toLongOrNull() ?: return@callback, 5)
+                val amount: Long = java.lang.Long.min(a["amount"]?.toLongOrNull() ?: return@callback, 5)
                 e.message.channel
                     .repeat(amount - 1)
                     .flatMap { it.createMessage("Pong") }

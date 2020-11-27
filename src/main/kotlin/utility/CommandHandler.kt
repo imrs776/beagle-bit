@@ -3,18 +3,20 @@ package org.beagle.utility
 import discord4j.core.`object`.entity.Member
 import discord4j.core.event.domain.message.MessageCreateEvent
 import org.slf4j.LoggerFactory
+import reactor.core.publisher.Mono
 import kotlin.reflect.KClass
 
-typealias MessageCommand = (event: MessageCreateEvent, arguments: Arguments) -> Unit
+typealias MessageCreatedCallback = (event: MessageCreateEvent, arguments: Arguments) -> Unit
 
-class Command private constructor(
+class CommandHandler private constructor(
     val prefix: String,
     val name: String,
     val arguments: Arguments,
-    val callbacks: List<MessageCommand>,
+    val callbacks: List<MessageCreatedCallback>,
     val permission: PERMISSION,
     val conditions: List<CONDITION>,
-    val subcommands: List<Command>
+    val subcommands: List<CommandHandler>,
+    val channels: List<Long>
 ) {
     private val patterns: List<Regex>
 
@@ -36,41 +38,47 @@ class Command private constructor(
         patterns = result
     }
 
-    class CommandBuilder(private val prefix: String, private val name: String) {
+    class CommandHandlerBuilder(private val prefix: String, private val name: String) {
         private val arguments: MutableList<Argument> = mutableListOf()
-        private val callbacks: MutableList<MessageCommand> = mutableListOf()
+        private val callbacks: MutableList<MessageCreatedCallback> = mutableListOf()
         private var permission: PERMISSION = PERMISSION.USER
         private val conditions: MutableList<CONDITION> = mutableListOf()
-        private val subcommands: MutableList<Command> = mutableListOf()
+        private val subcommands: MutableList<CommandHandler> = mutableListOf()
+        private var channels: MutableList<Long> = mutableListOf()
+
         fun <T : Any> argument(arg: String, type: KClass<T>) = apply {
             arguments.add(Argument(arg, null, type.simpleName ?: "null"))
         }
 
-        fun callback(c: MessageCommand) = apply { callbacks.add(c) }
+        fun callback(c: MessageCreatedCallback) = apply { callbacks.add(c) }
         fun permission(p: PERMISSION) = apply { permission = p }
         fun condition(c: CONDITION) = apply { conditions.add(c) }
-        fun subcommand(c: Command) = apply { subcommands.add(c) }
-        fun build() = Command(prefix, name, Arguments(arguments), callbacks, permission, conditions, subcommands)
+        fun subcommand(c: CommandHandler) = apply { subcommands.add(c) }
+        fun channel(channelID: Long) = apply { channels.add(channelID) }
+        fun build() =
+            CommandHandler(prefix, name, Arguments(arguments), callbacks, permission, conditions, subcommands, channels)
     }
 
     fun execute(event: MessageCreateEvent) {
-        if (!event.member.isPresent) return
-        val member = event.member.get()
-        if (!checkPermissions(member)) return
-        if (!checkConditions(member)) return
-        var patternsMatched = 0
-        patterns.forEach { if (it.matches(event.message.content)) patternsMatched++ }
-        if (patternsMatched > 0) {
-            val content = event.message.content.split(" ").map { it.trim() }
-            if (!parseInput(member, content)) return
-            subcommands.find { content[1].equals(it.prefix + it.name, ignoreCase = true) }
-                ?.executeSubcommand(event, content, 1) ?: run {
-                callbacks.forEach { it.invoke(event, arguments) }
-            }
-            LoggerFactory.getLogger(Command::class.simpleName)
-                .info("Command [${event.message.content}] executed by @${member.displayName}")
-            clearArguments()
-        }
+        Mono.just(event)
+            .filter { channels.isEmpty() || channels.contains(it.message.channelId.asLong()) }
+            .map { event.member }
+            .filter { it.isPresent }
+            .filter { checkPermissions(it.get()) }
+            .filter { checkConditions(it.get()) }
+            .map { event.message }
+            .filter { patterns.any { i -> i.matches(it.content) } }
+            .map { it.content.split(" ").map { w -> w.trim() } }
+            .filter { parseInput(it) }
+            .doOnNext { content ->
+                subcommands.find { content[1].equals(it.prefix + it.name, ignoreCase = true) }
+                    ?.executeSubcommand(event, content, 1) ?: run {
+                    callbacks.forEach { it.invoke(event, arguments) }
+                }
+                LoggerFactory.getLogger(CommandHandler::class.simpleName)
+                    .info("Command [$content] executed by @${event.member.get().displayName}")
+                clearArguments()
+            }.subscribe()
     }
 
     private fun executeSubcommand(event: MessageCreateEvent, content: List<String>, contentStart: Int) {
@@ -82,7 +90,7 @@ class Command private constructor(
 
     private fun checkPermissions(member: Member): Boolean {
         if (!permission.check(member)) {
-            LoggerFactory.getLogger(Command::class.simpleName)
+            LoggerFactory.getLogger(CommandHandler::class.simpleName)
                 .warn("Member @${member.displayName} doesn't have permission [$permission]")
             return false
         }
@@ -93,18 +101,18 @@ class Command private constructor(
         var check = true
         conditions.forEach { check = check && it.check(member) }
         if (!check) {
-            LoggerFactory.getLogger(Command::class.simpleName)
+            LoggerFactory.getLogger(CommandHandler::class.simpleName)
                 .warn("Member @${member.displayName} doesn't have conditions $conditions")
             return false
         }
         return true
     }
 
-    private fun parseInput(member: Member, content: List<String>, contentStart: Int = 0): Boolean {
+    private fun parseInput(content: List<String>, contentStart: Int = 0): Boolean {
         if (arguments.isEmpty() && content.size == contentStart + 1)
             return true
         return subcommands.find { content[contentStart + 1].equals(it.prefix + it.name, ignoreCase = true) }
-            ?.parseInput(member, content, contentStart + 1) ?: run {
+            ?.parseInput(content, contentStart + 1) ?: run {
             for (i in arguments.indices) {
                 arguments[i].value = content[contentStart + i + 1]
                 if (!arguments[i].isValid())

@@ -76,7 +76,7 @@ class CommandHandler private constructor(
                     callbacks.forEach { it.invoke(event, arguments) }
                 }
                 LoggerFactory.getLogger(CommandHandler::class.simpleName)
-                    .info("Command [$content] executed by @${event.member.get().displayName}")
+                    .info("Command $content executed by @${event.member.get().displayName}")
                 clearArguments()
             }.subscribe()
     }

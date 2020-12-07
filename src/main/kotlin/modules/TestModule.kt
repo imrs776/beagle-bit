@@ -4,7 +4,7 @@ import discord4j.core.`object`.reaction.ReactionEmoji
 import org.beagle.Bot
 import org.beagle.utility.CommandHandler
 
-class TestModule : Module("Test") {
+class TestModule : Module("Test", false) {
     private var messageID: Long? = null
 
     override fun initialize(bot: Bot) {

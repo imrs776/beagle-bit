@@ -1,7 +1,9 @@
 package org.beagle
 
+import discord4j.common.util.Snowflake
 import discord4j.core.DiscordClientBuilder
 import discord4j.core.GatewayDiscordClient
+import discord4j.core.`object`.entity.User
 import discord4j.core.event.domain.lifecycle.ReadyEvent
 import discord4j.core.event.domain.message.MessageCreateEvent
 import discord4j.core.event.domain.message.ReactionAddEvent
@@ -93,5 +95,13 @@ class Bot(private val token: String, val prefix: String) {
                 spec.addField(it.name, "```\n${it.description()}\n```", false)
             }
         }
+    }
+
+    fun getUserById(userId: Snowflake): User? {
+        return client?.guilds?.flatMap { client?.getMemberById(it.id, userId) }?.blockFirst()
+    }
+
+    fun getUserByName(username: String): User? {
+        return client?.users?.filter { it.username.equals(username, ignoreCase = true) }?.blockFirst()
     }
 }

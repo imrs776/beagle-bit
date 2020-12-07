@@ -24,7 +24,7 @@ class CommandHandler private constructor(
         val result = mutableListOf<Regex>()
         if (callbacks.isNotEmpty())
             result.add(
-                ("\\s*$prefix$name" + "\\s+\\w+".repeat(arguments.size) + "\\s*")
+                ("\\s*$prefix$name" + "\\s+\\S+".repeat(arguments.size) + "\\s*")
                     .toRegex(RegexOption.IGNORE_CASE)
             )
         subcommands.forEach { i ->
@@ -71,14 +71,25 @@ class CommandHandler private constructor(
             .map { it.content.split(" ").map { w -> w.trim() } }
             .filter { parseInput(it) }
             .doOnNext { content ->
-                subcommands.find { content[1].equals(it.prefix + it.name, ignoreCase = true) }
-                    ?.executeSubcommand(event, content, 1) ?: run {
-                    callbacks.forEach { it.invoke(event, arguments) }
+                try {
+                    subcommands.find { content[1].equals(it.prefix + it.name, ignoreCase = true) }
+                        ?.executeSubcommand(event, content, 1) ?: run {
+                        callbacks.forEach { it.invoke(event, arguments) }
+                    }
+                } catch (e: Exception) {
+                    LoggerFactory.getLogger(CommandHandler::class.simpleName)
+                        .error(
+                            "Failed to execute command $content executed by @${event.member.get().displayName}"
+                        )
+                    return@doOnNext
+                } finally {
+                    //event.message.delete().block()
                 }
                 LoggerFactory.getLogger(CommandHandler::class.simpleName)
                     .info("Command $content executed by @${event.member.get().displayName}")
                 clearArguments()
-            }.subscribe()
+            }
+            .subscribe()
     }
 
     private fun executeSubcommand(event: MessageCreateEvent, content: List<String>, contentStart: Int) {

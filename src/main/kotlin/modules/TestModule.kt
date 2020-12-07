@@ -22,7 +22,6 @@ class TestModule : Module("Test", false) {
             }
             .channel(763113530710163466)
             .build()
-
 //        reactionHandlers.add(
 //            ReactionHandler.ReactionHandlerBuilder()
 //                .channel(763113530710163466)

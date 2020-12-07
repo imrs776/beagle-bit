@@ -12,7 +12,6 @@ class HelpModule : Module("Help", true) {
                         .flatMap { it.createEmbed(bot.generateEmbed()) }
                         .subscribe()
                 }
-                .channel(763113530710163466)
                 .build())
         super.initialize(bot)
     }

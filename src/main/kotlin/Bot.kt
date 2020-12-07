@@ -13,36 +13,73 @@ import discord4j.rest.util.Color
 import org.beagle.modules.Module
 import org.beagle.utility.CommandHandler
 import org.beagle.utility.ReactionHandler
+import org.jetbrains.exposed.sql.Database
+import org.jetbrains.exposed.sql.SchemaUtils
+import org.jetbrains.exposed.sql.transactions.transaction
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import java.util.function.Consumer
 
-class Bot(private val token: String, val prefix: String) {
+class Bot(private val config: Config) {
+    val prefix: String = config.prefix
     private var client: GatewayDiscordClient? = null
     private val modules: MutableList<Module> = mutableListOf()
     private val commandHandlers: MutableList<CommandHandler> = mutableListOf()
     private val reactionHandlers: MutableList<ReactionHandler> = mutableListOf()
+    private var isValid = false
 
     init {
-        client = DiscordClientBuilder.create(token).build().login().block()
-        client?.eventDispatcher?.on(ReadyEvent::class.java)?.subscribe {
+        val tempClient: GatewayDiscordClient?
+        try {
+            Database.connect(config.databaseUrl)
+            transaction {
+                SchemaUtils.create(Data.Users)
+                SchemaUtils.create(Data.Guilds)
+                SchemaUtils.create(Data.Members)
+            }
+            tempClient = DiscordClientBuilder.create(config.token).build().login().block()
+            client = tempClient
+            client?.eventDispatcher?.on(ReadyEvent::class.java)?.subscribe {
+                LoggerFactory.getLogger(Bot::class.simpleName)
+                    .info("Logged in as ${it.self.username}, ${it.self.discriminator} with config:\n$config")
+            }
+            client?.guilds?.map {
+                transaction {
+                    val id = it.id.asLong()
+                    Data.Guild.findById(id) ?: Data.Guild.new(id) {
+                        name = it.name
+                        setting1 = false
+                        setting2 = false
+                    }
+                }
+            }?.blockLast()
+            isValid = client != null
+        } catch (e: Exception) {
             LoggerFactory.getLogger(Bot::class.simpleName)
-                .info("Logged in as ${it.self.username}, ${it.self.discriminator}")
+                .error("Failed to initialize bot with config:\n $config")
+            isValid = false
         }
     }
 
-    fun addModule(module: Module) = apply { modules.add(module) }
-    fun addCommandHandler(commandHandler: CommandHandler) = apply { this.commandHandlers.add(commandHandler) }
-    fun addReactionHandler(reactionHandler: ReactionHandler) = apply { this.reactionHandlers.add(reactionHandler) }
+    fun addModule(module: Module) =
+        apply { if (isValid) modules.add(module) }
+
+    fun addCommandHandler(commandHandler: CommandHandler) =
+        apply { if (isValid) commandHandlers.add(commandHandler) }
+
+    fun addReactionHandler(reactionHandler: ReactionHandler) =
+        apply { if (isValid) reactionHandlers.add(reactionHandler) }
 
     fun start() {
-        modules.forEach { it.initialize(this) }
-        LoggerFactory.getLogger(this::class.simpleName)
-            .info("Starting bot")
-        initializeCommands()
-        initializeReactions()
-        client?.onDisconnect()?.block()
+        if (isValid) {
+            modules.forEach { it.initialize(this) }
+            LoggerFactory.getLogger(this::class.simpleName)
+                .info("Starting bot")
+            initializeCommands()
+            initializeReactions()
+            client?.onDisconnect()?.block()
+        }
     }
 
     private fun initializeCommands() {

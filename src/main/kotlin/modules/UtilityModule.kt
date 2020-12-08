@@ -6,6 +6,7 @@ import kotlinx.serialization.json.jsonObject
 import org.beagle.Bot
 import org.beagle.utility.CommandHandler
 import org.beagle.utility.Helper
+import reactor.core.publisher.Mono
 import java.net.URL
 import java.util.function.Consumer
 
@@ -17,8 +18,8 @@ class UtilityModule : Module("Utility", true) {
             CommandHandler.CommandHandlerBuilder(bot.prefix, "hug")
                 .argument("member name", String::class)
                 .callback { e, a ->
-                    val name = a["member name"]?.toStringOrNull() ?: return@callback
-                    if (!e.member.isPresent) return@callback
+                    val name = a["member name"]?.toStringOrNull() ?: return@callback Mono.empty()
+                    if (!e.member.isPresent) return@callback Mono.empty()
                     var mention = name
                     if (!Helper.checkIfMention(name))
                         mention = bot.getUserByName(name)?.mention ?: name
@@ -32,8 +33,7 @@ class UtilityModule : Module("Utility", true) {
                     }
                     e.message.channel
                         .flatMap { it.createEmbed(embed) }
-                        .subscribe()
-
+                        .then()
                 }
                 .build())
 
@@ -50,8 +50,7 @@ class UtilityModule : Module("Utility", true) {
                     }
                     e.message.channel
                         .flatMap { it.createEmbed(embed) }
-                        .subscribe()
-
+                        .then()
                 }
                 .build())
 

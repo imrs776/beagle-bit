@@ -12,6 +12,7 @@ import discord4j.core.spec.EmbedCreateSpec
 import discord4j.rest.util.Color
 import org.beagle.modules.Module
 import org.beagle.utility.CommandHandler
+import org.beagle.utility.DialogSession
 import org.beagle.utility.ReactionHandler
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.SchemaUtils
@@ -24,9 +25,10 @@ import java.util.function.Consumer
 class Bot(private val config: Config) {
     val prefix: String = config.prefix
     private var client: GatewayDiscordClient? = null
-    private val modules: MutableList<Module> = mutableListOf()
-    private val commandHandlers: MutableList<CommandHandler> = mutableListOf()
-    private val reactionHandlers: MutableList<ReactionHandler> = mutableListOf()
+    private val modules = mutableListOf<Module>()
+    private val commandHandlers = mutableListOf<CommandHandler>()
+    private val reactionHandlers = mutableListOf<ReactionHandler>()
+    private val dialogSessions = mutableListOf<DialogSession>()
     private var isValid = false
 
     init {
@@ -71,6 +73,13 @@ class Bot(private val config: Config) {
     fun addReactionHandler(reactionHandler: ReactionHandler) =
         apply { if (isValid) reactionHandlers.add(reactionHandler) }
 
+    fun startDialogSession(session: DialogSession): Mono<Void> {
+        if (!isValid) return Mono.empty()
+
+        dialogSessions.add(session)
+        return session.updateStage(0)
+    }
+
     fun start() {
         if (isValid) {
             modules.forEach { it.initialize(this) }
@@ -90,7 +99,7 @@ class Bot(private val config: Config) {
                     .filter { it.content.startsWith(prefix) }
                     .flatMap {
                         Flux.fromIterable(commandHandlers)
-                            .map { it.execute(event) }
+                            .flatMap { it.execute(event) }
                             .then()
                     }
             }
@@ -103,9 +112,14 @@ class Bot(private val config: Config) {
             ?.flatMap { event ->
                 Mono.just(event.message)
                     .flatMap {
-                        Flux.fromIterable(reactionHandlers)
-                            .map { it.execute(event) }
-                            .then()
+                        val mono1 = Flux.fromIterable(dialogSessions)
+                            .flatMap { Flux.fromIterable(it.reactionHandles) }
+                            .flatMap { it.execute(event) }
+                            .doFinally { dialogSessions.removeIf { !it.isExist } }
+
+                        val mono2 = Flux.fromIterable(reactionHandlers)
+                            .flatMap { it.execute(event) }
+                        Flux.concat(mono1, mono2).then()
                     }
             }
             ?.subscribe() != null
@@ -115,11 +129,12 @@ class Bot(private val config: Config) {
                 Mono.just(event.message)
                     .flatMap {
                         Flux.fromIterable(reactionHandlers)
-                            .map { it.execute(event) }
+                            .flatMap { it.execute(event) }
                             .then()
                     }
             }
             ?.subscribe() != null
+
         if (!result) LoggerFactory.getLogger(Bot::class.simpleName)
             .warn("Failed to add reaction handlers $reactionHandlers")
     }

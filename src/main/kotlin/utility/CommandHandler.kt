@@ -1,12 +1,14 @@
 package org.beagle.utility
 
+import discord4j.common.util.Snowflake
 import discord4j.core.`object`.entity.Member
 import discord4j.core.event.domain.message.MessageCreateEvent
 import org.slf4j.LoggerFactory
+import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import kotlin.reflect.KClass
 
-typealias MessageCreatedCallback = (event: MessageCreateEvent, arguments: Arguments) -> Unit
+typealias MessageCreatedCallback = (event: MessageCreateEvent, arguments: Arguments) -> Mono<Void>
 
 class CommandHandler private constructor(
     val prefix: String,
@@ -16,7 +18,7 @@ class CommandHandler private constructor(
     val permission: PERMISSION,
     val conditions: List<CONDITION>,
     val subcommands: List<CommandHandler>,
-    val channels: List<Long>
+    val channels: List<Snowflake>
 ) {
     private val patterns: List<Regex>
 
@@ -39,12 +41,12 @@ class CommandHandler private constructor(
     }
 
     class CommandHandlerBuilder(private val prefix: String, private val name: String) {
-        private val arguments: MutableList<Argument> = mutableListOf()
-        private val callbacks: MutableList<MessageCreatedCallback> = mutableListOf()
-        private var permission: PERMISSION = PERMISSION.USER
-        private val conditions: MutableList<CONDITION> = mutableListOf()
-        private val subcommands: MutableList<CommandHandler> = mutableListOf()
-        private var channels: MutableList<Long> = mutableListOf()
+        private val arguments = mutableListOf<Argument>()
+        private val callbacks = mutableListOf<MessageCreatedCallback>()
+        private var permission = PERMISSION.USER
+        private val conditions = mutableListOf<CONDITION>()
+        private val subcommands = mutableListOf<CommandHandler>()
+        private val channels = mutableListOf<Snowflake>()
 
         fun <T : Any> argument(arg: String, type: KClass<T>) = apply {
             arguments.add(Argument(arg, null, type.simpleName ?: "null"))
@@ -54,48 +56,41 @@ class CommandHandler private constructor(
         fun permission(p: PERMISSION) = apply { permission = p }
         fun condition(c: CONDITION) = apply { conditions.add(c) }
         fun subcommand(c: CommandHandler) = apply { subcommands.add(c) }
-        fun channel(channelID: Long) = apply { channels.add(channelID) }
+        fun channel(channelID: Snowflake) = apply { channels.add(channelID) }
         fun build() =
             CommandHandler(prefix, name, Arguments(arguments), callbacks, permission, conditions, subcommands, channels)
     }
 
-    fun execute(event: MessageCreateEvent) {
-        Mono.just(event)
-            .filter { channels.isEmpty() || channels.contains(it.message.channelId.asLong()) }
-            .map { event.member }
-            .filter { it.isPresent }
-            .filter { checkPermissions(it.get()) }
-            .filter { checkConditions(it.get()) }
-            .map { event.message }
-            .filter { patterns.any { i -> i.matches(it.content) } }
-            .map { it.content.split(" ").map { w -> w.trim() } }
-            .filter { parseInput(it) }
-            .doOnNext { content ->
-                try {
-                    subcommands.find { content[1].equals(it.prefix + it.name, ignoreCase = true) }
-                        ?.executeSubcommand(event, content, 1) ?: run {
-                        callbacks.forEach { it.invoke(event, arguments) }
-                    }
-                } catch (e: Exception) {
-                    LoggerFactory.getLogger(CommandHandler::class.simpleName)
-                        .error(
-                            "Failed to execute command $content executed by @${event.member.get().displayName}"
-                        )
-                    return@doOnNext
-                } finally {
-                    //event.message.delete().block()
-                }
+    fun execute(event: MessageCreateEvent): Mono<Void> {
+        return Mono.just(event)
+            .filter { event.member.isPresent && (channels.isEmpty() || channels.contains(it.message.channelId)) }
+            .filter { checkPermissions(event.member.get()) && checkConditions(event.member.get()) }
+            .filter { patterns.any { i -> i.matches(event.message.content) } }
+            .flatMap {
+                val content = event.message.content.split(" ").map { w -> w.trim() }
                 LoggerFactory.getLogger(CommandHandler::class.simpleName)
                     .info("Command $content executed by @${event.member.get().displayName}")
-                clearArguments()
+
+                parseInput(content).flatMap { arguments ->
+                    findAndExecute(event, content, 0, arguments)
+                        .onErrorContinue { e, i ->
+                            LoggerFactory.getLogger(CommandHandler::class.simpleName)
+                                .error("Failed to execute command $content, $e")
+                        }
+                }
             }
-            .subscribe()
+            .then()
     }
 
-    private fun executeSubcommand(event: MessageCreateEvent, content: List<String>, contentStart: Int) {
-        subcommands.find { content[contentStart + 1].equals(it.prefix + it.name, ignoreCase = true) }
-            ?.executeSubcommand(event, content, contentStart + 1) ?: run {
-            callbacks.forEach { it.invoke(event, arguments) }
+    private fun findAndExecute(
+        event: MessageCreateEvent,
+        content: List<String>,
+        contentStart: Int,
+        arguments: Arguments
+    ): Mono<Void> {
+        return subcommands.find { content[contentStart + 1].equals(it.prefix + it.name, ignoreCase = true) }
+            ?.findAndExecute(event, content, contentStart + 1, arguments) ?: run {
+            Flux.fromIterable(callbacks).flatMap { it.invoke(event, arguments) }.then()
         }
     }
 
@@ -119,17 +114,18 @@ class CommandHandler private constructor(
         return true
     }
 
-    private fun parseInput(content: List<String>, contentStart: Int = 0): Boolean {
-        if (arguments.isEmpty() && content.size == contentStart + 1)
-            return true
+    private fun parseInput(content: List<String>, contentStart: Int = 0): Mono<Arguments> {
+        val result = arguments
+        if (result.isEmpty() && content.size == contentStart + 1)
+            return Mono.just(result)
         return subcommands.find { content[contentStart + 1].equals(it.prefix + it.name, ignoreCase = true) }
             ?.parseInput(content, contentStart + 1) ?: run {
-            for (i in arguments.indices) {
-                arguments[i].value = content[contentStart + i + 1]
-                if (!arguments[i].isValid())
-                    return false
+            for (i in result.indices) {
+                result[i].value = content[contentStart + i + 1]
+                if (!result[i].isValid())
+                    return Mono.empty()
             }
-            return true
+            return Mono.just(result)
         }
     }
 

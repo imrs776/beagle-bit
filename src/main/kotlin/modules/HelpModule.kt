@@ -10,7 +10,7 @@ class HelpModule : Module("Help", true) {
                 .callback { e, _ ->
                     e.message.channel
                         .flatMap { it.createEmbed(bot.generateEmbed()) }
-                        .subscribe()
+                        .then()
                 }
                 .build())
         super.initialize(bot)

@@ -6,4 +6,4 @@ RUN gradle clean build --no-daemon
 FROM openjdk:8
 COPY --from=build /app/out/bin/ /tmp
 WORKDIR /tmp
-ENTRYPOINT ["java","-jar","Beadocker gle.jar"]
+ENTRYPOINT ["java","-jar","discord_bot.jar"]

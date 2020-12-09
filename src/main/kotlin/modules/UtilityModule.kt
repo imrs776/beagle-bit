@@ -1,59 +1,159 @@
-package org.beagle.modules
+package org.imrs776.modules
 
-import discord4j.core.spec.EmbedCreateSpec
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
-import org.beagle.Bot
-import org.beagle.utility.CommandHandler
-import org.beagle.utility.Helper
-import reactor.core.publisher.Mono
-import java.net.URL
-import java.util.function.Consumer
+import com.jagrosh.jdautilities.command.Command
+import com.jagrosh.jdautilities.command.CommandEvent
+import com.mashape.unirest.http.HttpResponse
+import com.mashape.unirest.http.JsonNode
+import com.mashape.unirest.http.Unirest
+import com.mashape.unirest.http.async.Callback
+import com.mashape.unirest.http.exceptions.UnirestException
+import net.dv8tion.jda.api.EmbedBuilder
+import net.dv8tion.jda.api.Permission
 
-class UtilityModule : Module("Utility", true) {
-    override fun initialize(bot: Bot) {
-        val urlHugImageApi = URL("https://some-random-api.ml/animu/hug")
-        val urlMemeImageApi = URL("https://some-random-api.ml/meme")
-        commandHandlers.add(
-            CommandHandler.CommandHandlerBuilder(bot.prefix, "hug")
-                .argument("member name", String::class)
-                .callback { e, a ->
-                    val name = a["member name"]?.toStringOrNull() ?: return@callback Mono.empty()
-                    if (!e.member.isPresent) return@callback Mono.empty()
-                    var mention = name
-                    if (!Helper.checkIfMention(name))
-                        mention = bot.getUserByName(name)?.mention ?: name
 
-                    val json = Json.parseToJsonElement(urlHugImageApi.readText())
-                    val link = json.jsonObject["link"].toString().trimStart('"').trimEnd('"')
-                    val embed: Consumer<EmbedCreateSpec> = Consumer {
-                        it.setDescription(e.member.get().mention + " hugs **$mention**")
-                        it.setImage(link)
-                        it.setColor(Helper.getRandomColor())
-                    }
-                    e.message.channel
-                        .flatMap { it.createEmbed(embed) }
-                        .then()
+class UtilityModule : BaseModule(Command.Category("Utility")) {
+    override val commands: Array<Command> = arrayOf(
+        CatCommand(category),
+        MemeCommand(category),
+        HugCommand(category),
+        ChooseCommand(category)
+    )
+
+    private class HugCommand(superCategory: Category) : Command() {
+        init {
+            category = superCategory
+            name = "hug"
+            aliases = arrayOf("love", "kiss")
+            help = "hugs someone <3"
+            arguments = "<item> <item> ..."
+            botPermissions = arrayOf<Permission>(Permission.MESSAGE_EMBED_LINKS)
+        }
+
+        val mentionRegex = Regex("^<@!?&?(\\d+)>\$")
+        override fun execute(event: CommandEvent) {
+            if (event.author.isBot) return
+            val args = event.args.split("\\s+".toRegex())
+            if (event.args.isEmpty() || args.isEmpty()) {
+                event.replyWarning("There is nothing to hug...");
+            } else {
+                val thingsToHug = mutableListOf<String>()
+                args.forEach { argument ->
+                    thingsToHug.add(
+                        if (argument.matches(mentionRegex)) argument else
+                            event.guild.members
+                                .find { it.effectiveName.equals(argument, ignoreCase = true) }?.asMention ?: argument
+                    )
                 }
-                .build())
-
-        commandHandlers.add(
-            CommandHandler.CommandHandlerBuilder(bot.prefix, "meme")
-                .callback { e, _ ->
-                    val json = Json.parseToJsonElement(urlMemeImageApi.readText())
-                    val link = json.jsonObject["image"].toString().trimStart('"').trimEnd('"')
-                    val category = json.jsonObject["category"].toString().trimStart('"').trimEnd('"')
-                    val embed: Consumer<EmbedCreateSpec> = Consumer {
-                        it.setDescription("Here is random meme from category: **$category**")
-                        it.setImage(link)
-                        it.setColor(Helper.getRandomColor())
+                Unirest.get("https://some-random-api.ml/animu/hug").asJsonAsync(object : Callback<JsonNode> {
+                    override fun completed(response: HttpResponse<JsonNode>) {
+                        event.reply(
+                            EmbedBuilder()
+                                .setColor((0..0xffffff).random())
+                                .setDescription(
+                                    event.author.asMention
+                                            + " hugs `${thingsToHug.joinToString(separator = " and ")}`"
+                                )
+                                .setImage(response.body.`object`.getString("link"))
+                                .build()
+                        )
                     }
-                    e.message.channel
-                        .flatMap { it.createEmbed(embed) }
-                        .then()
-                }
-                .build())
 
-        super.initialize(bot)
+                    override fun failed(e: UnirestException) = cancelled()
+                    override fun cancelled() = event.replyError("Hugs is not available...");
+                })
+            }
+        }
+    }
+
+    private class MemeCommand(superCategory: Category) : Command() {
+        init {
+            category = superCategory
+            name = "meme"
+            aliases = arrayOf("reddit")
+            help = "generate meme"
+            botPermissions = arrayOf<Permission>(Permission.MESSAGE_EMBED_LINKS)
+            arguments = "<subreddit>"
+            guildOnly = false
+
+        }
+
+        override fun execute(event: CommandEvent) {
+            if (event.author.isBot) return
+            val embed = EmbedBuilder()
+            embed.setColor((0..0xffffff).random())
+            Unirest.get("https://meme-api.herokuapp.com/gimme/" + event.args).asJsonAsync(object : Callback<JsonNode> {
+                override fun completed(response: HttpResponse<JsonNode>) {
+                    when {
+                        response.code != 200 -> event.replyError(response.body.`object`.getString("message"))
+                        event.args.toIntOrNull() != null -> event.replyError("This subreddit does not exist.")
+                        else -> event.reply(
+                            EmbedBuilder()
+                                .setColor((0..0xffffff).random())
+                                .setDescription(
+                                    "Here is random post from reddit: "
+                                            + response.body.`object`.getString("postLink")
+                                )
+                                .setImage(response.body.`object`.getString("url"))
+                                .build()
+                        )
+                    }
+                }
+
+                override fun failed(e: UnirestException) = cancelled()
+                override fun cancelled() = event.replyError("Meme source is not available...");
+            })
+        }
+    }
+
+    private class CatCommand(superCategory: Category) : Command() {
+        init {
+            category = superCategory
+            name = "cat"
+            aliases = arrayOf("meow")
+            help = "shows a random cat"
+            botPermissions = arrayOf<Permission>(Permission.MESSAGE_EMBED_LINKS)
+            guildOnly = false
+        }
+
+        override fun execute(event: CommandEvent) {
+            Unirest.get("https://aws.random.cat/meow").asJsonAsync(object : Callback<JsonNode> {
+                override fun completed(hr: HttpResponse<JsonNode>) {
+                    event.reply(
+                        EmbedBuilder()
+                            .setColor((0..0xffffff).random())
+                            .setDescription("Here is random `cat`")
+                            .setImage(hr.body.getObject().getString("file"))
+                            .build()
+                    )
+                }
+
+                override fun failed(e: UnirestException) = cancelled()
+                override fun cancelled() = event.replyError("Cats source is not available...");
+            })
+        }
+
+    }
+
+    private class ChooseCommand(superCategory: Category) : Command() {
+        init {
+            category = superCategory
+            name = "choose"
+            help = "make a decision"
+            arguments = "<item> <item> ..."
+            guildOnly = false
+        }
+
+        override fun execute(event: CommandEvent) {
+            if (event.args.isEmpty()) {
+                event.replyWarning("You didn't give me any choices!")
+            } else {
+                val items = event.args.split("\\s+".toRegex())
+                if (items.size == 1)
+                    event.replyWarning("You only gave me one option, `" + items[0] + "`")
+                else
+                    event.replySuccess("I choose `" + items[(Math.random() * items.size).toInt()] + "`")
+            }
+        }
     }
 }
+

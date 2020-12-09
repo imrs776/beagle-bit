@@ -1,159 +1,27 @@
-package org.beagle
+package org.imrs776
 
-import discord4j.common.util.Snowflake
-import discord4j.core.DiscordClientBuilder
-import discord4j.core.GatewayDiscordClient
-import discord4j.core.`object`.entity.User
-import discord4j.core.event.domain.lifecycle.ReadyEvent
-import discord4j.core.event.domain.message.MessageCreateEvent
-import discord4j.core.event.domain.message.ReactionAddEvent
-import discord4j.core.event.domain.message.ReactionRemoveEvent
-import discord4j.core.spec.EmbedCreateSpec
-import discord4j.rest.util.Color
-import org.beagle.modules.Module
-import org.beagle.utility.CommandHandler
-import org.beagle.utility.DialogSession
-import org.beagle.utility.ReactionHandler
-import org.jetbrains.exposed.sql.Database
-import org.jetbrains.exposed.sql.SchemaUtils
-import org.jetbrains.exposed.sql.transactions.transaction
-import org.slf4j.LoggerFactory
-import reactor.core.publisher.Flux
-import reactor.core.publisher.Mono
-import java.util.function.Consumer
+import com.jagrosh.jdautilities.command.CommandClientBuilder
+import com.jagrosh.jdautilities.commons.waiter.EventWaiter
+import com.jagrosh.jdautilities.examples.command.PingCommand
+import net.dv8tion.jda.api.JDA
+import net.dv8tion.jda.api.JDABuilder
+import net.dv8tion.jda.api.OnlineStatus
+import org.imrs776.modules.BaseModule
 
-class Bot(private val config: Config) {
-    val prefix: String = config.prefix
-    private var client: GatewayDiscordClient? = null
-    private val modules = mutableListOf<Module>()
-    private val commandHandlers = mutableListOf<CommandHandler>()
-    private val reactionHandlers = mutableListOf<ReactionHandler>()
-    private val dialogSessions = mutableListOf<DialogSession>()
-    private var isValid = false
+class Bot(config: Config.ConfigData, vararg modules: BaseModule) {
+    private val waiter = EventWaiter()
+    private val client = CommandClientBuilder()
+    private val discordApi: JDA
 
     init {
-        val tempClient: GatewayDiscordClient?
-        try {
-            Database.connect(config.databaseUrl)
-            transaction {
-                SchemaUtils.create(Data.Users)
-                SchemaUtils.create(Data.Guilds)
-                SchemaUtils.create(Data.Members)
-            }
-            tempClient = DiscordClientBuilder.create(config.token).build().login().block()
-            client = tempClient
-            client?.eventDispatcher?.on(ReadyEvent::class.java)?.subscribe {
-                LoggerFactory.getLogger(Bot::class.simpleName)
-                    .info("Logged in as ${it.self.username}, ${it.self.discriminator} with config:\n$config")
-            }
-            client?.guilds?.map {
-                transaction {
-                    val id = it.id.asLong()
-                    Data.Guild.findById(id) ?: Data.Guild.new(id) {
-                        name = it.name
-                        setting1 = false
-                        setting2 = false
-                    }
-                }
-            }?.blockLast()
-            isValid = client != null
-        } catch (e: Exception) {
-            LoggerFactory.getLogger(Bot::class.simpleName)
-                .error("Failed to initialize bot with config:\n $config")
-            isValid = false
-        }
-    }
-
-    fun addModule(module: Module) =
-        apply { if (isValid) modules.add(module) }
-
-    fun addCommandHandler(commandHandler: CommandHandler) =
-        apply { if (isValid) commandHandlers.add(commandHandler) }
-
-    fun addReactionHandler(reactionHandler: ReactionHandler) =
-        apply { if (isValid) reactionHandlers.add(reactionHandler) }
-
-    fun startDialogSession(session: DialogSession): Mono<Void> {
-        if (!isValid) return Mono.empty()
-
-        dialogSessions.add(session)
-        return session.updateStage(0)
-    }
-
-    fun start() {
-        if (isValid) {
-            modules.forEach { it.initialize(this) }
-            LoggerFactory.getLogger(this::class.simpleName)
-                .info("Starting bot")
-            initializeCommands()
-            initializeReactions()
-            client?.onDisconnect()?.block()
-        }
-    }
-
-    private fun initializeCommands() {
-        client?.eventDispatcher?.on(MessageCreateEvent::class.java)
-            ?.flatMap { event ->
-                Mono.just(event.message)
-                    .filter { it.author.map { !it.isBot }.orElse(false) }
-                    .filter { it.content.startsWith(prefix) }
-                    .flatMap {
-                        Flux.fromIterable(commandHandlers)
-                            .flatMap { it.execute(event) }
-                            .then()
-                    }
-            }
-            ?.subscribe() ?: LoggerFactory.getLogger(Bot::class.simpleName)
-            .warn("Failed to add command handlers $commandHandlers")
-    }
-
-    private fun initializeReactions() {
-        var result: Boolean = client?.eventDispatcher?.on(ReactionAddEvent::class.java)
-            ?.flatMap { event ->
-                Mono.just(event.message)
-                    .flatMap {
-                        val mono1 = Flux.fromIterable(dialogSessions)
-                            .flatMap { Flux.fromIterable(it.reactionHandles) }
-                            .flatMap { it.execute(event) }
-                            .doFinally { dialogSessions.removeIf { !it.isExist } }
-
-                        val mono2 = Flux.fromIterable(reactionHandlers)
-                            .flatMap { it.execute(event) }
-                        Flux.concat(mono1, mono2).then()
-                    }
-            }
-            ?.subscribe() != null
-
-        result = result && client?.eventDispatcher?.on(ReactionRemoveEvent::class.java)
-            ?.flatMap { event ->
-                Mono.just(event.message)
-                    .flatMap {
-                        Flux.fromIterable(reactionHandlers)
-                            .flatMap { it.execute(event) }
-                            .then()
-                    }
-            }
-            ?.subscribe() != null
-
-        if (!result) LoggerFactory.getLogger(Bot::class.simpleName)
-            .warn("Failed to add reaction handlers $reactionHandlers")
-    }
-
-    fun generateEmbed(): Consumer<EmbedCreateSpec> = Consumer { spec ->
-        spec.setTitle("Потрогай каждую команду моих модулей, давай же")
-        spec.setColor(Color.WHITE)
-        modules.forEach {
-            if (it.isVisible) {
-                spec.addField(it.name, "```\n${it.description()}\n```", false)
-            }
-        }
-    }
-
-    fun getUserById(userId: Snowflake): User? {
-        return client?.guilds?.flatMap { client?.getMemberById(it.id, userId) }?.blockFirst()
-    }
-
-    fun getUserByName(username: String): User? {
-        return client?.users?.filter { it.username.equals(username, ignoreCase = true) }?.blockFirst()
+        client.useDefaultGame()
+        client.setOwnerId(config.ownerId)
+        client.setPrefix(config.prefix)
+        modules.forEach { client.addCommands(*it.commands) }
+        client.addCommand(PingCommand())
+        discordApi = JDABuilder.createDefault(config.token)
+            .setStatus(OnlineStatus.DO_NOT_DISTURB)
+            .addEventListeners(waiter, client.build())
+            .build()
     }
 }

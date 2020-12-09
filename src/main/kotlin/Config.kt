@@ -1,10 +1,39 @@
-package org.beagle
-import kotlinx.serialization.*
-import kotlinx.serialization.json.*
+package org.imrs776
 
-@Serializable
-data class Config(
-    var token: String,
-    var prefix: String,
-    var databaseUrl: String,
-)
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import org.slf4j.LoggerFactory
+import java.io.File
+
+object Config {
+    fun load(file: File): ConfigData? {
+        return if (!file.createNewFile()) {
+            try {
+                val data: ConfigData = Json.decodeFromString(file.readText())
+                LoggerFactory.getLogger(Config::class.simpleName)
+                    .info("Configuration file config.json has been loaded:\n$data ")
+                data
+            } catch (e: Exception) {
+                LoggerFactory.getLogger(Config::class.java.simpleName)
+                    .error(e.stackTraceToString())
+                null
+            }
+        } else {
+            val string = Json.encodeToString(ConfigData())
+            file.writeText(string)
+            LoggerFactory.getLogger(Config::class.java.simpleName)
+                .info("Configuration file config.json has been created ")
+            null
+        }
+    }
+
+    @Serializable
+    data class ConfigData(
+        val token: String = "",
+        val ownerId: String = "",
+        val prefix: String = "",
+        val databaseUrl: String = ""
+    )
+}

@@ -1,6 +1,5 @@
-package org.imrs776.commands
+package org.imrs776.commands.utility
 
-import com.jagrosh.jdautilities.command.Command
 import com.jagrosh.jdautilities.command.CommandEvent
 import com.mashape.unirest.http.HttpResponse
 import com.mashape.unirest.http.JsonNode
@@ -9,14 +8,15 @@ import com.mashape.unirest.http.async.Callback
 import com.mashape.unirest.http.exceptions.UnirestException
 import net.dv8tion.jda.api.EmbedBuilder
 import net.dv8tion.jda.api.Permission
+import org.imrs776.abstracts.BaseUtilityCommand
+import org.imrs776.modules.UtilityModule
 
-class CatCommand(superCategory: Category) : Command() {
+class CatCommand(module: UtilityModule) : BaseUtilityCommand(module) {
     init {
-        category = superCategory
         name = "cat"
         aliases = arrayOf("meow")
         help = "shows a random cat"
-        botPermissions = arrayOf<Permission>(Permission.MESSAGE_EMBED_LINKS)
+        botPermissions = arrayOf(Permission.MESSAGE_EMBED_LINKS)
         guildOnly = false
     }
 
@@ -35,6 +35,6 @@ class CatCommand(superCategory: Category) : Command() {
             override fun failed(e: UnirestException) = cancelled()
             override fun cancelled() = event.replyError("Cats source is not available...");
         })
+        super.execute(event)
     }
-
 }

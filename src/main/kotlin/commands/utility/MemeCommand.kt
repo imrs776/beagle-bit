@@ -1,6 +1,5 @@
-package org.imrs776.commands
+package org.imrs776.commands.utility
 
-import com.jagrosh.jdautilities.command.Command
 import com.jagrosh.jdautilities.command.CommandEvent
 import com.mashape.unirest.http.HttpResponse
 import com.mashape.unirest.http.JsonNode
@@ -9,14 +8,15 @@ import com.mashape.unirest.http.async.Callback
 import com.mashape.unirest.http.exceptions.UnirestException
 import net.dv8tion.jda.api.EmbedBuilder
 import net.dv8tion.jda.api.Permission
+import org.imrs776.abstracts.BaseUtilityCommand
+import org.imrs776.modules.UtilityModule
 
-class MemeCommand(superCategory: Category) : Command() {
+class MemeCommand(module: UtilityModule) : BaseUtilityCommand(module) {
     init {
-        category = superCategory
         name = "meme"
         aliases = arrayOf("reddit")
-        help = "generate meme"
-        botPermissions = arrayOf<Permission>(Permission.MESSAGE_EMBED_LINKS)
+        help = "generates meme from reddit"
+        botPermissions = arrayOf(Permission.MESSAGE_EMBED_LINKS)
         arguments = "<subreddit>"
         guildOnly = false
 
@@ -47,5 +47,6 @@ class MemeCommand(superCategory: Category) : Command() {
             override fun failed(e: UnirestException) = cancelled()
             override fun cancelled() = event.replyError("Meme source is not available...");
         })
+        super.execute(event)
     }
 }

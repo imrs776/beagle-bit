@@ -1,6 +1,5 @@
-package org.imrs776.commands
+package org.imrs776.commands.utility
 
-import com.jagrosh.jdautilities.command.Command
 import com.jagrosh.jdautilities.command.CommandEvent
 import com.mashape.unirest.http.HttpResponse
 import com.mashape.unirest.http.JsonNode
@@ -9,15 +8,16 @@ import com.mashape.unirest.http.async.Callback
 import com.mashape.unirest.http.exceptions.UnirestException
 import net.dv8tion.jda.api.EmbedBuilder
 import net.dv8tion.jda.api.Permission
+import org.imrs776.abstracts.BaseUtilityCommand
+import org.imrs776.modules.UtilityModule
 
-class HugCommand(superCategory: Category) : Command() {
+class HugCommand(module: UtilityModule) : BaseUtilityCommand(module) {
     init {
-        category = superCategory
         name = "hug"
         aliases = arrayOf("love", "kiss")
-        help = "hugs someone <3"
+        help = "hugs things"
         arguments = "<item> <item> ..."
-        botPermissions = arrayOf<Permission>(Permission.MESSAGE_EMBED_LINKS)
+        botPermissions = arrayOf(Permission.MESSAGE_EMBED_LINKS)
     }
 
     private val mentionRegex = Regex("^<@!?&?(\\d+)>\$")
@@ -32,7 +32,7 @@ class HugCommand(superCategory: Category) : Command() {
                 thingsToHug.add(
                     if (argument.matches(mentionRegex)) argument else
                         event.guild.members
-                            .find { it.effectiveName.equals(argument, ignoreCase = true) }?.asMention ?: argument
+                            .find { it.effectiveName.equals(argument, ignoreCase = true) }?.asMention ?: "`$argument`"
                 )
             }
             Unirest.get("https://some-random-api.ml/animu/hug").asJsonAsync(object : Callback<JsonNode> {
@@ -41,8 +41,7 @@ class HugCommand(superCategory: Category) : Command() {
                         EmbedBuilder()
                             .setColor((0..0xffffff).random())
                             .setDescription(
-                                event.author.asMention
-                                        + " hugs `${thingsToHug.joinToString(separator = " and ")}`"
+                                event.author.asMention + " hugs ${thingsToHug.joinToString(separator = " and ")}"
                             )
                             .setImage(response.body.`object`.getString("link"))
                             .build()
@@ -53,5 +52,6 @@ class HugCommand(superCategory: Category) : Command() {
                 override fun cancelled() = event.replyError("Hugs is not available...");
             })
         }
+        super.execute(event)
     }
 }

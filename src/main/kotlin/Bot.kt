@@ -6,7 +6,7 @@ import com.jagrosh.jdautilities.examples.command.PingCommand
 import net.dv8tion.jda.api.JDA
 import net.dv8tion.jda.api.JDABuilder
 import net.dv8tion.jda.api.OnlineStatus
-import org.imrs776.modules.BaseModule
+import org.imrs776.abstracts.BaseModule
 
 class Bot(config: Config.ConfigData, vararg modules: BaseModule) {
     private val waiter = EventWaiter()

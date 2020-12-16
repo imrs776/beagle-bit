@@ -1,11 +1,11 @@
-package org.imrs776.commands
+package org.imrs776.commands.utility
 
-import com.jagrosh.jdautilities.command.Command
 import com.jagrosh.jdautilities.command.CommandEvent
+import org.imrs776.abstracts.BaseUtilityCommand
+import org.imrs776.modules.UtilityModule
 
-class ChooseCommand(superCategory: Category) : Command() {
+class ChooseCommand(module: UtilityModule) : BaseUtilityCommand(module) {
     init {
-        category = superCategory
         name = "choose"
         help = "make a decision"
         arguments = "<item> <item> ..."
@@ -22,5 +22,6 @@ class ChooseCommand(superCategory: Category) : Command() {
             else
                 event.replySuccess("I choose `" + items[(Math.random() * items.size).toInt()] + "`")
         }
+        super.execute(event)
     }
 }

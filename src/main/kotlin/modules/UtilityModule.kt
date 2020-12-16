@@ -1,18 +1,19 @@
 package org.imrs776.modules
 
 import com.jagrosh.jdautilities.command.Command
-import org.imrs776.commands.CatCommand
-import org.imrs776.commands.ChooseCommand
-import org.imrs776.commands.HugCommand
-import org.imrs776.commands.MemeCommand
+import org.imrs776.abstracts.BaseModule
+import org.imrs776.commands.utility.CatCommand
+import org.imrs776.commands.utility.ChooseCommand
+import org.imrs776.commands.utility.HugCommand
+import org.imrs776.commands.utility.MemeCommand
 
 
 class UtilityModule : BaseModule(Command.Category("Utility")) {
     override val commands: Array<Command> = arrayOf(
-        CatCommand(category),
-        MemeCommand(category),
-        HugCommand(category),
-        ChooseCommand(category)
+        CatCommand(this),
+        MemeCommand(this),
+        HugCommand(this),
+        ChooseCommand(this)
     )
 }
 

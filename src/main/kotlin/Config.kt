@@ -21,7 +21,7 @@ object Config {
                 null
             }
         } else {
-            val string = Json.encodeToString(ConfigData("","","!","url"))
+            val string = Json.encodeToString(ConfigData("", "", "!", "", "", "", "", "", ""))
             file.writeText(string)
             LoggerFactory.getLogger(Config::class.java.simpleName)
                 .info("Configuration file config.json has been created ")
@@ -32,8 +32,13 @@ object Config {
     @Serializable
     data class ConfigData(
         val token: String,
-        val ownerId: String,
         val prefix: String,
-        val databaseUrl: String
+        val databaseName: String,
+        val databaseUser: String,
+        val databasePassword: String,
+        val databaseServiceHost: String,
+        val databaseServicePort: String,
+        val databaseDefault: String,
+        val ownerId: String
     )
 }

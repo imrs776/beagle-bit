@@ -8,6 +8,7 @@ import com.mashape.unirest.http.async.Callback
 import com.mashape.unirest.http.exceptions.UnirestException
 import net.dv8tion.jda.api.EmbedBuilder
 import net.dv8tion.jda.api.Permission
+import net.dv8tion.jda.api.entities.ChannelType
 import org.imrs776.abstracts.BaseUtilityCommand
 import org.imrs776.modules.UtilityModule
 
@@ -30,7 +31,9 @@ class HugCommand(module: UtilityModule) : BaseUtilityCommand(module) {
             val thingsToHug = mutableListOf<String>()
             args.forEach { argument ->
                 thingsToHug.add(
-                    if (argument.matches(mentionRegex)) argument else
+                    if (argument.matches(mentionRegex))
+                        argument
+                    else
                         event.guild.members
                             .find { it.effectiveName.equals(argument, ignoreCase = true) }?.asMention ?: "`$argument`"
                 )
@@ -44,7 +47,9 @@ class HugCommand(module: UtilityModule) : BaseUtilityCommand(module) {
                                 event.author.asMention + " hugs ${thingsToHug.joinToString(separator = " and ")}"
                             )
                             .setImage(response.body.`object`.getString("link"))
-                            .build()
+                            .build(),
+                        { if (event.isFromType(ChannelType.TEXT)) event.reactSuccess() },
+                        { if (event.isFromType(ChannelType.TEXT)) event.reactError() }
                     )
                 }
 

@@ -8,6 +8,7 @@ import com.mashape.unirest.http.async.Callback
 import com.mashape.unirest.http.exceptions.UnirestException
 import net.dv8tion.jda.api.EmbedBuilder
 import net.dv8tion.jda.api.Permission
+import net.dv8tion.jda.api.entities.ChannelType
 import org.imrs776.abstracts.BaseUtilityCommand
 import org.imrs776.modules.UtilityModule
 
@@ -39,7 +40,9 @@ class MemeCommand(module: UtilityModule) : BaseUtilityCommand(module) {
                                         + response.body.`object`.getString("postLink")
                             )
                             .setImage(response.body.`object`.getString("url"))
-                            .build()
+                            .build(),
+                        { if (event.isFromType(ChannelType.TEXT)) event.reactSuccess() },
+                        { if (event.isFromType(ChannelType.TEXT)) event.reactError() }
                     )
                 }
             }
